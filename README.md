@@ -70,3 +70,83 @@
 - [Python api pose](https://github.com/emptysoal/TensorRT-YOLO11/tree/main/python/pose)
 - [Python api segment](https://github.com/emptysoal/TensorRT-YOLO11/tree/main/python/segment)
 - [Python api track](https://github.com/emptysoal/TensorRT-YOLO11/tree/main/python)
+
+## 六. 无人机部署（SpireCV Pro SDK）
+
+本项目支持集成 [SpireCV Pro SDK](https://gitee.com/spirecv/spirecv-pro.git) 进行无人机端部署，实现从无人机摄像头读取视频流、YOLO11 实时检测，并将处理后的视频流推送到指定推流节点。
+
+### 6.1 功能说明
+
+- **视频流读取**：优先使用 SpireCV Pro SDK 读取无人机摄像头；若 SDK 不可用，自动回退至 OpenCV VideoCapture（支持 USB 摄像头、RTSP 流）
+- **实时目标检测**：基于 YOLO11 TensorRT 进行推理，叠加检测框和置信度信息
+- **视频推流**：优先使用 SpireCV Pro SDK 推流；若不可用，回退至 FFmpeg（Python）或 GStreamer（C++）进行 RTMP 推流
+
+### 6.2 环境依赖
+
+- SpireCV Pro SDK（可选，推荐）：https://gitee.com/spirecv/spirecv-pro.git
+- FFmpeg（Python 回退方案）：`apt install ffmpeg`
+- GStreamer + gstreamer1.0-plugins-bad（C++ 回退方案，需 OpenCV 支持 GStreamer）
+
+### 6.3 Python 版使用
+
+```bash
+cd python
+
+# 基本用法（读取本地摄像头 0，推流到本地 RTMP 服务器）
+python drone_detect.py \
+    --detect-model ./detect/model.plan \
+    --camera-id 0 \
+    --stream-url rtmp://localhost:1935/live/stream
+
+# 通过 RTSP 流读取无人机摄像头
+python drone_detect.py \
+    --detect-model ./detect/model.plan \
+    --camera-url rtsp://192.168.1.1:8554/main \
+    --stream-url rtmp://192.168.1.100:1935/live/drone \
+    --width 1280 --height 720 --fps 30
+```
+
+**参数说明**
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--detect-model` | TensorRT plan 文件路径 | `./detect/model.plan` |
+| `--camera-id` | 摄像头设备 ID | `0` |
+| `--camera-url` | 摄像头流地址（优先于 `--camera-id`） | `""` |
+| `--stream-url` | 推流目标地址（RTMP URL） | `rtmp://localhost:1935/live/stream` |
+| `--width` | 视频宽度 | `1280` |
+| `--height` | 视频高度 | `720` |
+| `--fps` | 推流帧率 | `30` |
+| `--gpu-id` | GPU 设备 ID | `0` |
+| `--conf-thresh` | 置信度阈值 | `0.25` |
+| `--nms-thresh` | NMS IoU 阈值 | `0.45` |
+
+### 6.4 C++ 版使用
+
+```bash
+cd C++/drone_detect
+mkdir build && cd build
+
+# 如已安装 SpireCV Pro SDK，编辑 CMakeLists.txt 取消 SPIRECV_ROOT 相关注释
+cmake ..
+make -j$(nproc)
+
+# 运行（摄像头 ID 或 RTSP 流地址 + RTMP 推流地址）
+./drone_detect 0 rtmp://localhost:1935/live/stream
+./drone_detect rtsp://192.168.1.1:8554/main rtmp://192.168.1.100:1935/live/drone
+```
+
+### 6.5 SpireCV Pro SDK 集成说明
+
+当系统安装了 SpireCV Pro SDK 后：
+
+**Python**：`import spirecv` 自动生效，`DroneCamera` 和 `DroneStreamer` 类会自动切换至 SDK 接口。
+
+**C++**：在 `C++/drone_detect/CMakeLists.txt` 中取消以下注释并设置正确路径：
+
+```cmake
+set(SPIRECV_ROOT "/usr/local/spirecv")
+# ... 取消对应注释块
+```
+
+然后重新编译即可启用 `HAVE_SPIRECV` 宏，代码会自动使用 SpireCV Pro 的摄像头和推流接口。
