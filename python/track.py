@@ -23,7 +23,7 @@ def make_parser():
     parser.add_argument("--video",
                         type=str,
                         default="./videos/street.mp4",
-                        help="The path of the video to be tracked.")
+                        help="The path or URL of the video to be tracked (e.g. a local file or an RTSP stream URL).")
     # tracking args
     parser.add_argument("--track_thresh", type=float, default=0.5, help="tracking confidence threshold")
     parser.add_argument("--track_buffer", type=int, default=30, help="the frames for keep lost tracks")
@@ -45,18 +45,31 @@ def get_color(idx):
     return color
 
 
+def is_stream(source):
+    """Return True if source is a network stream (e.g. RTSP) rather than a local file."""
+    return str(source).lower().startswith(("rtsp://", "rtmp://", "http://", "https://"))
+
+
 def main(args):
-    assert os.path.isfile(args.video), "Video path does not exist."
+    if not is_stream(args.video):
+        assert os.path.isfile(args.video), "Video path does not exist."
 
     cap = cv2.VideoCapture(args.video)
     if not cap.isOpened():
+        if is_stream(args.video):
+            print("Error: Unable to connect to stream: %s" % args.video)
+        else:
+            print("Error: Unable to open video file: %s" % args.video)
         return
 
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
     fps = cap.get(cv2.CAP_PROP_FPS)
     n_frames = cap.get(cv2.CAP_PROP_FRAME_COUNT)
-    print("Total frames: %s" % n_frames)
+    if n_frames > 0:
+        print("Total frames: %s" % n_frames)
+    else:
+        print("Streaming source detected; frame count is unknown.")
 
     vid_writer = cv2.VideoWriter("result.mp4", cv2.VideoWriter_fourcc(*"mp4v"), fps, (int(width), int(height)))
 
@@ -74,8 +87,9 @@ def main(args):
         if not ret_val:
             break
         num_frames += 1
+        current_fps = int(num_frames / total_cost) if total_cost > 0 else 0
         if num_frames % 20 == 0:
-            print("Processing frame : %s ( %s fps)" % (num_frames, int(num_frames / total_cost)))
+            print("Processing frame : %s ( %s fps)" % (num_frames, current_fps))
 
         start = time.time()
 
@@ -100,7 +114,7 @@ def main(args):
             cv2.putText(frame, str(int(t.track_id)), (int(x1), int(y1) - 3), 0, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
             cv2.rectangle(frame, (int(x1), int(y1)), (int(x1 + w), int(y1 + h)), color=color, thickness=2)
         cv2.putText(frame,
-                    'frame: %d fps: %d num: %d' % (num_frames, int(num_frames / total_cost), len(online_targets)),
+                    'frame: %d fps: %d num: %d' % (num_frames, current_fps, len(online_targets)),
                     (0, 30), 0, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
 
         vid_writer.write(frame)
